@@ -1,0 +1,2 @@
+[console_scripts]
+autocuepoint = autocuepoint.cli:main

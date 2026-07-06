@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "autocuepoint"
+version = "0.1.0"
+description = "Automatically add cue points to a rekordbox XML library based on detected phrase boundaries"
+requires-python = ">=3.10"
+dependencies = [
+    "click>=8.1",
+    "defusedxml>=0.7",
+    "librosa>=0.10",
+    "numpy>=1.24",
+    "scipy>=1.11",
+    "pyrekordbox>=0.3",
+]
+
+[project.scripts]
+autocuepoint = "autocuepoint.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["autocuepoint*"]
