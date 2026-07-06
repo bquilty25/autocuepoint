@@ -36,7 +36,7 @@ All dependencies are installed automatically by `pip install -e .`.
 ## Installation
 
 ```bash
-git clone https://github.com/your-username/autocuepoint.git
+git clone https://github.com/bquilty25/autocuepoint.git
 cd autocuepoint
 python3 -m venv .venv
 source .venv/bin/activate
