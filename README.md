@@ -6,6 +6,12 @@ Cue points are written directly to the rekordbox database (`master.db`), so ther
 
 ---
 
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+---
+
 ## Requirements
 
 - macOS (rekordbox stores its database at `~/Library/Pioneer/rekordbox/master.db`)
