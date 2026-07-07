@@ -198,65 +198,60 @@ def get_bar_duration(bpm: float, metro: str = "4/4") -> float:
     return (60.0 / bpm) * beats_per_bar
 
 
-def compute_raw_energy(audio_path: Path, bpm: float | None = None) -> float:
+def compute_raw_energy(audio_path: Path) -> float:
     """
     Compute a raw (unnormalised) energy value for a track.
 
-    Combines four features that together approximate DJ-perceived energy:
-
-    - **BPM** (35 %): tempo normalised over 85–175 BPM. Fastest single
-      contributor — a 140 BPM techno track starts with a clear advantage.
-      If BPM is unavailable, this component defaults to 0.5.
-    - **RMS loudness** (30 %): 75th-percentile RMS of non-silent frames,
-      representing how loud the active parts of the track are.
-    - **Onset strength** (25 %): density and sharpness of rhythmic events.
-    - **Spectral centroid** (10 %): tonal brightness.
-
+    Combines RMS loudness (45 %), onset density (35 %), and spectral
+    centroid/brightness (20 %) into a single float in [0.0, 1.0].
     Pass a list of these values to :func:`normalise_scores` to convert
     them to 1–5 star ratings relative to your library.
 
     Args:
         audio_path: path to a supported audio file
-        bpm: track BPM (from rekordbox beat grid); if None uses a neutral 0.5
 
     Returns:
         Raw energy float in [0.0, 1.0].
     """
     _validate_audio_path(audio_path)
-
-    # BPM component (no audio load needed)
-    if bpm is not None and bpm > 0:
-        bpm_norm = float(np.clip((bpm - 85.0) / (175.0 - 85.0), 0.0, 1.0))
-    else:
-        bpm_norm = 0.5
-
     y, sr = librosa.load(str(audio_path), sr=_SR, mono=True)
 
-    # RMS loudness: 75th percentile of non-silent frames
+    # 1. Compute RMS and onset over the same set of frames, trimmed to the
+    #    same length to guard against any off-by-one from different algorithms.
     rms_frames = librosa.feature.rms(y=y, hop_length=_HOP_LENGTH)[0]
-    active = rms_frames[rms_frames > 1e-4]
-    rms = float(np.percentile(active, 75)) if len(active) > 0 else 0.0
+    onset_env  = librosa.onset.onset_strength(y=y, sr=sr, hop_length=_HOP_LENGTH)
+    n = min(len(rms_frames), len(onset_env))
+    rms_frames = rms_frames[:n]
+    onset_env  = onset_env[:n]
 
-    # Mean onset strength (musical event density)
-    onset_env = librosa.onset.onset_strength(y=y, sr=sr, hop_length=_HOP_LENGTH)
-    onset_mean = float(np.mean(onset_env))
+    # 2. RMS: 75th percentile of all non-trivial frames (> 1 % of max RMS)
+    rms_threshold_low = float(rms_frames.max()) * 0.01
+    active_mask = rms_frames > max(rms_threshold_low, 1e-4)
+    active_rms = rms_frames[active_mask]
+    rms = float(np.percentile(active_rms, 75)) if len(active_rms) > 0 else 0.0
 
-    # Mean spectral centroid (brightness)
+    # 3. Onset: mean over BUSY frames only (above the 25th-percentile RMS of
+    #    active frames) so quiet intros, breakdowns, and outros do not dilute
+    #    the score for otherwise high-energy tracks.
+    busy_threshold = float(np.percentile(active_rms, 25)) if len(active_rms) > 0 else 0.0
+    busy_mask = active_mask & (rms_frames > busy_threshold)
+    busy_onset = onset_env[busy_mask]
+    onset_mean = float(np.mean(busy_onset)) if len(busy_onset) > 0 else float(np.mean(onset_env))
+
+    # 4. Mean spectral centroid (brightness) — aligned to same frame count
     centroid = float(np.mean(
-        librosa.feature.spectral_centroid(y=y, sr=sr, hop_length=_HOP_LENGTH)
+        librosa.feature.spectral_centroid(y=y, sr=sr, hop_length=_HOP_LENGTH)[0, :n]
     ))
 
-    # Normalise audio features to [0, 1]
+    # Normalise each feature to [0, 1] using empirical bounds
     rms_norm = float(np.clip((rms - 0.01) / (0.45 - 0.01), 0.0, 1.0))
     onset_norm = float(np.clip((onset_mean - 0.05) / (2.0 - 0.05), 0.0, 1.0))
     centroid_norm = float(np.clip((centroid - 500) / (4000 - 500), 0.0, 1.0))
 
-    return float(
-        0.35 * bpm_norm
-        + 0.30 * rms_norm
-        + 0.25 * onset_norm
-        + 0.10 * centroid_norm
-    )
+    # Weights: onset density (50%) > RMS loudness (30%) > brightness (20%)
+    # Onset weighted highest so rhythmically intense tracks score high
+    # regardless of mastering level.
+    return float(0.30 * rms_norm + 0.50 * onset_norm + 0.20 * centroid_norm)
 
 
 def normalise_scores(raw_values: list[float]) -> list[int]:

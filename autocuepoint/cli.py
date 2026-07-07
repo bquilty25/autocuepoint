@@ -270,7 +270,7 @@ def main(
 
             # Optional energy score — collect raw value for batch normalisation
             if energy_score:
-                raw = compute_raw_energy(audio_path, bpm=bpm)
+                raw = compute_raw_energy(audio_path)
                 energy_pending.append((track, raw))
 
             processed += 1
