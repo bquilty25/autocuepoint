@@ -176,8 +176,9 @@ def detect_phrase_boundaries(
             bar_features[:, i] = frame_features[:, start_f]
 
     # ── Structural segmentation ───────────────────────────────────────────────
-    # Cap k to the number of bars we actually have
-    k = min(n_segments, n_bars - 1)
+    # Request 3x the desired cues so the selection layer has plenty of
+    # candidates spread across the track to choose from.
+    k = min(n_segments * 3, n_bars - 1)
     if k < 1:
         return bar_times[:1]
 

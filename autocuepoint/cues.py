@@ -33,50 +33,72 @@ def build_hot_cues(
     bar_duration: float,
     offset_bars: int,
     max_cues: int = 8,
+    min_spacing_bars: int = 8,
+    first_bar_time: float = 0.0,
 ) -> list[CuePoint]:
     """
     Convert phrase boundary times into a list of CuePoint objects.
 
-    Slot 0 is always placed at the very start of the track (0.0 s). The
-    remaining slots are filled with the offset phrase boundaries in order,
-    skipping any that also resolve to 0.0 s. Up to `max_cues` (max 8) cues
-    are returned, assigned to hot cue slots 0-7.
+    Uses furthest-point (maximin) selection to pick cues that are maximally
+    spread across the track rather than just the first N in time order.
+
+    Algorithm:
+      1. Slot 0 is always `first_bar_time` (the first real downbeat from the
+         ANLZ beat grid — not necessarily 0.0, since tracks may have silence
+         or a count-in before the first musical bar).
+      2. Apply the bar offset to all candidate boundaries; drop negatives.
+      3. Iteratively pick the remaining candidate whose minimum distance to
+         any already-selected cue is greatest, subject to min_spacing_bars.
+      4. Sort accepted times chronologically and assign slots 0-7.
 
     Args:
-        boundary_times: array of phrase boundary positions in seconds
+        boundary_times: candidate boundary positions in seconds (may be more
+                        than max_cues — the caller should over-supply)
         bar_duration: duration of one bar in seconds
-        offset_bars: number of bars to subtract from each boundary time
-                     (0, 16, or 32 typically)
-        max_cues: maximum number of cues to produce (cap at 8)
+        offset_bars: bars to subtract from each boundary (0, 16, or 32)
+        max_cues: maximum hot cue slots to fill (cap at 8)
+        min_spacing_bars: minimum bars between any two accepted cues
+        first_bar_time: timestamp of the first musical downbeat in seconds
+                        (from ANLZ); used as the fixed slot-0 anchor
 
     Returns:
-        List of CuePoint objects ready to pass to xml_io.write_cue_points().
+        List of CuePoint objects, sorted chronologically, slots 0-7.
     """
     offset_seconds = offset_bars * bar_duration
+    min_spacing_seconds = min_spacing_bars * bar_duration
     cap = min(max_cues, 8)
-    cues: list[CuePoint] = []
 
-    # Slot 0 is always bar 1
-    r, g, b = HOT_CUE_COLOURS[0]
-    cues.append(CuePoint(start=0.0, num=0, name="", red=r, green=g, blue=b))
+    # Build the candidate pool: apply offset, drop negatives, deduplicate
+    candidates: list[float] = sorted({
+        round(float(t) - offset_seconds, 3)
+        for t in boundary_times
+        if round(float(t) - offset_seconds, 3) > 0.0
+    })
 
-    slot = 1
-    for boundary_time in boundary_times:
-        if slot >= cap:
+    # Slot 0 is the first real musical downbeat (not necessarily 0.0)
+    selected: list[float] = [round(first_bar_time, 3)]
+
+    # Furthest-point selection
+    while len(selected) < cap and candidates:
+        # For each candidate, compute its minimum distance to any selected cue
+        def _min_dist(t: float) -> float:
+            return min(abs(t - s) for s in selected)
+
+        # Only consider candidates that satisfy the minimum spacing constraint
+        valid = [t for t in candidates if _min_dist(t) >= min_spacing_seconds]
+        if not valid:
             break
 
-        cue_time = round(float(boundary_time) - offset_seconds, 3)
-        if cue_time <= 0.0:
-            continue  # would duplicate the bar-1 cue
+        # Pick the candidate furthest from all selected cues
+        best = max(valid, key=_min_dist)
+        selected.append(best)
+        candidates.remove(best)
 
-        cues.append(CuePoint(
-            start=cue_time,
-            num=slot,
-            name="",
-            red=r,
-            green=g,
-            blue=b,
-        ))
-        slot += 1
+    # Sort chronologically and assign colour slots in time order
+    selected.sort()
+    cues: list[CuePoint] = []
+    for slot, t in enumerate(selected):
+        r, g, b = HOT_CUE_COLOURS[slot]
+        cues.append(CuePoint(start=t, num=slot, name="", red=r, green=g, blue=b))
 
     return cues

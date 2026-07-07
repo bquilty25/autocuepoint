@@ -69,6 +69,9 @@ autocuepoint --offset 16 --segments 4
 
 # Chroma mode — better for melody-driven pop/rock
 autocuepoint --offset 16 --feature chroma
+
+# Require at least 16 bars between cues (fewer, more spread out)
+autocuepoint --offset 16 --min-spacing 16
 ```
 
 After running, open rekordbox and the cue points will appear on your tracks.
@@ -85,6 +88,7 @@ After running, open rekordbox and the cue points will appear on your tracks.
 | `--track` | — | Case-insensitive substring filter on artist or title. |
 | `--feature` | `mfcc` | Analysis method. `mfcc` works best for electronic/dance music; `chroma` works better for melody-driven pop/rock. |
 | `--min-duration` | `60` | Skip tracks shorter than this many seconds (useful for filtering out short loops or samples). |
+| `--min-spacing` | `8` | Minimum number of bars between any two consecutive cue points. Cues closer than this are dropped. Raise this value if cues are too tightly packed; lower it if the track is very short. |
 | `--no-backup` | off | Skip the automatic database backup. Not recommended. |
 
 ---
@@ -99,7 +103,7 @@ For example, with `--offset 16`:
 - The cue is placed at bar 48, 16 bars before the drop.
 - The cue lights up with 16 bars to go — enough time to start your transition and land cleanly on the drop.
 
-If an offset would push a cue before the start of the track, that cue is skipped. Slot A is always placed at bar 1 regardless of offset.
+If an offset would push a cue before the start of the track, that cue is skipped. Slot A is always placed at the first real musical downbeat (read from the ANLZ beat grid), regardless of offset.
 
 ---
 
@@ -144,7 +148,6 @@ Colours are visible when loading the track in rekordbox's waveform view.
 - Tracks must have been analysed by rekordbox at least once for ANLZ files to exist. If not, the tool falls back to average BPM stored in the library.
 - **If rekordbox's beat grid is wrong, all cues will be off-grid.** The tool trusts the ANLZ beat grid as-is and has no way to detect that it is incorrect. If cues look misaligned, re-analyse the track in rekordbox (right-click > Analyse Tracks), then re-run autocuepoint with `--overwrite`. Tracks that rekordbox struggles to analyse — live recordings, non-4/4 time, unusual intros — are most likely to have grid issues.
 - Phrase detection is automatic and unsupervised: it finds points where the audio texture changes noticeably. Results vary by genre and recording style and may not match the musical structure you would identify by ear — treat the cues as a starting point and edit them in rekordbox as needed.
-- Cue points are not distributed evenly across the track. The algorithm finds the most structurally distinct boundaries globally, so a track with a repetitive intro and a varied second half will have most cues clustered in the latter half. If you want coverage across the whole track, edit them manually after running.
 - Spotify-linked tracks have no local audio file and cannot be processed.
 
 ---
@@ -170,11 +173,13 @@ The audio file is loaded into memory and two things happen:
 
 ### 4. Detecting phrase boundaries
 
-A self-similarity matrix is built from the bar vectors: each cell scores how similar two bars sound to each other. Agglomerative clustering (from librosa) then divides the matrix into the requested number of phrases (`--segments`) by finding the cut points that best separate dissimilar regions. The first bar of each phrase is returned as a timestamp.
+A self-similarity matrix is built from the bar vectors: each cell scores how similar two bars sound to each other. Agglomerative clustering (from librosa) is run with three times the requested number of segments to produce a large pool of candidate boundaries spread across the track.
+
+From that pool, a **furthest-point (maximin) selection** algorithm picks the final cues. Starting from the first downbeat, each new pick is whichever remaining candidate is furthest from every already-selected cue, subject to the `--min-spacing` constraint. This forces coverage across the whole track rather than clustering in the most structurally active section.
 
 ### 5. Applying the offset
 
-Each phrase-start timestamp is shifted backwards by `--offset` bars. This places the cue point before the drop or breakdown rather than on it, so the cue light on your CDJ or controller triggers early enough to act on.
+Each selected cue timestamp is shifted backwards by `--offset` bars. This places the cue point before the drop or breakdown rather than on it, so the cue light on your CDJ or controller triggers early enough to act on.
 
 ### 6. Writing to the database
 

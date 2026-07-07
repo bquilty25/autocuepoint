@@ -82,10 +82,24 @@ from .xml_io import Tempo as XmlTempo
     help="Skip tracks shorter than this many seconds (e.g. sample loops).",
 )
 @click.option(
+    "--min-spacing",
+    default=8,
+    show_default=True,
+    type=click.IntRange(1, 64),
+    help="Minimum number of bars between consecutive cue points. "
+         "Cues closer than this are dropped.",
+)
+@click.option(
     "--no-backup",
     is_flag=True,
     default=False,
     help="Skip the automatic database backup. Not recommended.",
+)
+@click.option(
+    "--verbose",
+    is_flag=True,
+    default=False,
+    help="Print extra detail: short-duration skips, missing tracks, and cue timestamps.",
 )
 def main(
     offset: str,
@@ -94,7 +108,9 @@ def main(
     track_filter: str | None,
     feature: str,
     min_duration: int,
+    min_spacing: int,
     no_backup: bool,
+    verbose: bool,
 ) -> None:
     """Automatically add hot cue points to the rekordbox 6/7 library database."""
 
@@ -142,12 +158,15 @@ def main(
         # Skip tracks that are too short
         track_duration = int(track.Length or 0)
         if track_duration < min_duration:
+            if verbose:
+                click.echo(f"  [short]   {label}  ({track_duration}s < {min_duration}s min)")
             skipped_short += 1
             continue
 
         # Skip if already has hot cues (unless --overwrite)
         if has_hot_cues(db, str(track.ID)) and not overwrite:
-            click.echo(f"  [skip]    {label}  (already has hot cues; use --overwrite to replace)")
+            if verbose:
+                click.echo(f"  [skip]    {label}  (already has hot cues; use --overwrite to replace)")
             skipped_existing += 1
             continue
 
@@ -155,7 +174,8 @@ def main(
         bpm_from_db, audio_path = get_track_bpm_and_path(track)
 
         if audio_path is None or not audio_path.exists():
-            click.echo(f"  [missing] {label}  -- audio file not found, skipping", err=True)
+            if verbose:
+                click.echo(f"  [missing] {label}  -- audio file not found, skipping")
             skipped_no_audio += 1
             continue
 
@@ -211,6 +231,8 @@ def main(
                 bar_duration=bar_duration,
                 offset_bars=offset_bars,
                 max_cues=segments,
+                min_spacing_bars=min_spacing,
+                first_bar_time=float(bar_times[0]) if len(bar_times) > 0 else 0.0,
             )
 
             if not cues:
@@ -229,6 +251,10 @@ def main(
 
             n_written = write_cues_to_db(db, track, cues)
             click.echo(f"           -> {n_written} hot cues written (offset -{offset_bars} bars)")
+            if verbose:
+                for cue in cues:
+                    mins, secs = divmod(cue.start, 60)
+                    click.echo(f"              cue {cue.num + 1}: {int(mins):02d}:{secs:05.2f}  {cue.name or ''}")
             processed += 1
 
         except Exception as exc:  # noqa: BLE001
