@@ -140,6 +140,15 @@ Colours are visible when loading the track in rekordbox's waveform view.
 - Nothing is committed to the database unless all cue rows for a track are written successfully.
 - Tracks with Spotify streaming URIs are silently skipped (no local audio file to analyse).
 
+To restore a previous backup, run:
+
+```bash
+autocuepoint-restore          # interactive list of available backups
+autocuepoint-restore --file ~/Library/Pioneer/rekordbox/master.backup_autocue_20260707_120000.db
+```
+
+A safety snapshot of the current database is always taken before overwriting, so restoring is non-destructive.
+
 ---
 
 ## Limitations

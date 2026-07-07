@@ -1,4 +1,6 @@
 click>=8.1
+defusedxml>=0.7
 librosa>=0.10
 numpy>=1.24
 scipy>=1.11
+pyrekordbox>=0.3

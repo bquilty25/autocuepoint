@@ -18,6 +18,7 @@ dependencies = [
 
 [project.scripts]
 autocuepoint = "autocuepoint.cli:main"
+autocuepoint-restore = "autocuepoint.cli:restore"
 
 [tool.setuptools.packages.find]
 where = ["."]

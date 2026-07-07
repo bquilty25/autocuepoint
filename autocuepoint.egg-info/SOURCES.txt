@@ -1,8 +1,11 @@
+LICENSE
+README.md
 pyproject.toml
 autocuepoint/__init__.py
 autocuepoint/analysis.py
 autocuepoint/cli.py
 autocuepoint/cues.py
+autocuepoint/db_io.py
 autocuepoint/xml_io.py
 autocuepoint.egg-info/PKG-INFO
 autocuepoint.egg-info/SOURCES.txt

@@ -1,2 +1,3 @@
 [console_scripts]
 autocuepoint = autocuepoint.cli:main
+autocuepoint-restore = autocuepoint.cli:restore

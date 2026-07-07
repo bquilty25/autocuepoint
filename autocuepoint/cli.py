@@ -283,3 +283,106 @@ def main(
 
 if __name__ == "__main__":
     main()
+
+
+# ── Restore command ───────────────────────────────────────────────────────────
+
+_DB_PATH = Path.home() / "Library" / "Pioneer" / "rekordbox" / "master.db"
+
+
+@click.command()
+@click.option(
+    "--file",
+    "backup_file",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Path to a specific backup file to restore. If omitted, an interactive "
+         "list of available autocuepoint backups is shown.",
+)
+@click.option(
+    "--yes",
+    is_flag=True,
+    default=False,
+    help="Skip the confirmation prompt.",
+)
+def restore(backup_file: Path | None, yes: bool) -> None:
+    """Restore master.db from an autocuepoint backup."""
+    import shutil
+    import subprocess
+    from datetime import datetime
+
+    # Abort if rekordbox is running
+    result = subprocess.run(["pgrep", "-x", "rekordbox"], capture_output=True)
+    if result.returncode == 0:
+        click.echo(
+            "ERROR: rekordbox is currently running. Close it before restoring.",
+            err=True,
+        )
+        sys.exit(1)
+
+    # Resolve which backup to restore
+    if backup_file is None:
+        backups = sorted(_DB_PATH.parent.glob("master.backup_autocue_*.db"))
+        if not backups:
+            click.echo("No autocuepoint backups found in "
+                       f"{_DB_PATH.parent}", err=True)
+            sys.exit(1)
+
+        click.echo("Available backups (most recent last):\n")
+        for i, p in enumerate(backups, 1):
+            # Parse timestamp from filename for display
+            try:
+                ts = p.stem.split("master.backup_autocue_")[1]
+                dt = datetime.strptime(ts, "%Y%m%d_%H%M%S")
+                label = dt.strftime("%Y-%m-%d  %H:%M:%S")
+            except (IndexError, ValueError):
+                label = p.stem
+            size_mb = p.stat().st_size / (1024 ** 2)
+            click.echo(f"  [{i}]  {label}  ({size_mb:.1f} MB)  {p.name}")
+
+        click.echo()
+        choice = click.prompt(
+            "Enter number to restore (or q to quit)",
+            default="q",
+        )
+        if choice.strip().lower() == "q":
+            click.echo("Cancelled.")
+            sys.exit(0)
+        try:
+            idx = int(choice) - 1
+            if not (0 <= idx < len(backups)):
+                raise ValueError
+        except ValueError:
+            click.echo("Invalid selection.", err=True)
+            sys.exit(1)
+        backup_file = backups[idx]
+
+    # Confirm
+    click.echo(f"\nRestore:  {backup_file.name}")
+    click.echo(f"      ->  {_DB_PATH}")
+    if not yes:
+        click.confirm("This will overwrite your current library. Continue?",
+                      abort=True)
+
+    # Safety: snapshot the current database before overwriting
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    pre_restore_backup = _DB_PATH.with_name(f"master.pre_restore_{ts}.db")
+    shutil.copy2(_DB_PATH, pre_restore_backup)
+    click.echo(f"\nSafety backup of current state: {pre_restore_backup.name}")
+
+    # Perform the restore
+    shutil.copy2(backup_file, _DB_PATH)
+
+    # Integrity check
+    if _DB_PATH.stat().st_size != backup_file.stat().st_size:
+        # Roll back to the safety snapshot
+        shutil.copy2(pre_restore_backup, _DB_PATH)
+        click.echo(
+            "ERROR: Restored file size does not match backup. "
+            "Original database has been preserved.",
+            err=True,
+        )
+        sys.exit(1)
+
+    click.echo(f"Restored successfully. Open rekordbox to verify.")
+

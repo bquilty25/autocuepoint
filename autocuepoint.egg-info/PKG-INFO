@@ -3,7 +3,11 @@ Name: autocuepoint
 Version: 0.1.0
 Summary: Automatically add cue points to a rekordbox XML library based on detected phrase boundaries
 Requires-Python: >=3.10
+License-File: LICENSE
 Requires-Dist: click>=8.1
+Requires-Dist: defusedxml>=0.7
 Requires-Dist: librosa>=0.10
 Requires-Dist: numpy>=1.24
 Requires-Dist: scipy>=1.11
+Requires-Dist: pyrekordbox>=0.3
+Dynamic: license-file
