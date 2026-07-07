@@ -19,7 +19,7 @@ from pathlib import Path
 import click
 import numpy as np
 
-from .analysis import bars_from_audio, bars_from_tempo, compute_raw_energy, detect_phrase_boundaries, get_bar_duration, normalise_scores
+from .analysis import bars_from_audio, bars_from_tempo, absolute_scores, compute_raw_energy, detect_phrase_boundaries, get_bar_duration, normalise_scores
 from .cues import build_hot_cues
 from .db_io import (
     backup_database,
@@ -95,8 +95,19 @@ from .xml_io import Tempo as XmlTempo
     is_flag=True,
     default=False,
     help="Compute a perceived energy score (1–5) for each track and write it to "
-         "the rekordbox star rating field. Based on loudness, onset density, and "
-         "spectral brightness. WARNING: overwrites any existing star ratings.",
+         "the rekordbox star rating field. Based on onset density and spectral "
+         "brightness. WARNING: overwrites any existing star ratings.",
+)
+@click.option(
+    "--normalise/--no-normalise",
+    "normalise",
+    default=True,
+    show_default=True,
+    help="With --normalise (default): scores are percentile quintiles relative "
+         "to your library — every tier gets 20%% of tracks. "
+         "With --no-normalise: fixed absolute thresholds are used — scores "
+         "reflect the track's audio characteristics regardless of the rest of "
+         "the library.",
 )
 @click.option(
     "--no-backup",
@@ -119,6 +130,7 @@ def main(
     min_duration: int,
     min_spacing: int,
     energy_score: bool,
+    normalise: bool,
     no_backup: bool,
     verbose: bool,
 ) -> None:
@@ -283,8 +295,13 @@ def main(
     # Normalise and write energy scores across the whole batch
     if energy_pending:
         raw_values = [r for _, r in energy_pending]
-        scores = normalise_scores(raw_values)
-        click.echo(f"\nWriting normalised energy scores for {len(scores)} tracks ...")
+        if normalise:
+            scores = normalise_scores(raw_values)
+            mode_label = "normalised (percentile quintiles)"
+        else:
+            scores = absolute_scores(raw_values)
+            mode_label = "absolute (fixed thresholds)"
+        click.echo(f"\nWriting energy scores for {len(scores)} tracks ({mode_label}) ...")
         from collections import Counter
         dist = Counter(scores)
         for s in sorted(dist):

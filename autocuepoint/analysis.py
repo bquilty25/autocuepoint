@@ -255,12 +255,9 @@ def compute_raw_energy(audio_path: Path) -> float:
 
 def normalise_scores(raw_values: list[float]) -> list[int]:
     """
-    Convert a list of raw energy floats into 1–5 star ratings using
-    percentile quintiles across the supplied batch.
-
-    The bottom 20 % of tracks receive 1 star, the next 20 % receive 2, and
-    so on, so every score tier is represented regardless of the absolute
-    loudness of the library.
+    Convert raw energy floats to 1–5 using percentile quintiles across
+    the supplied batch. Guarantees exactly 20 % of tracks per tier —
+    scores are relative to your library, not absolute.
 
     Args:
         raw_values: list of raw energy floats (from :func:`compute_raw_energy`)
@@ -285,6 +282,44 @@ def normalise_scores(raw_values: list[float]) -> list[int]:
         else:
             scores.append(5)
     return scores
+
+
+def absolute_scores(raw_values: list[float]) -> list[int]:
+    """
+    Convert raw energy floats to 1–5 using fixed thresholds.
+
+    Scores reflect absolute audio characteristics and are consistent
+    across different runs and different library sizes. The distribution
+    will not be uniform — a library of mostly ambient tracks will score
+    mostly 1–2, a library of hard techno will score mostly 4–5.
+
+    Thresholds (calibrated for electronic/dance music libraries where raw
+    scores typically fall between 0.45 and 0.95):
+        < 0.60  → 1 star  (sparse/ambient — minimal beats, textured)
+        < 0.73  → 2 stars (relaxed/groovy — light rhythmic content)
+        < 0.83  → 3 stars (solid dance floor — consistent groove)
+        < 0.91  → 4 stars (high energy — dense, punchy)
+        ≥ 0.91  → 5 stars (peak time — maximum density, hard techno / d&b)
+
+    Args:
+        raw_values: list of raw energy floats (from :func:`compute_raw_energy`)
+
+    Returns:
+        List of integers in [1, 5], one per input value.
+    """
+    result = []
+    for v in raw_values:
+        if v < 0.60:
+            result.append(1)
+        elif v < 0.73:
+            result.append(2)
+        elif v < 0.83:
+            result.append(3)
+        elif v < 0.91:
+            result.append(4)
+        else:
+            result.append(5)
+    return result
 
 
 # ── Internal helpers ─────────────────────────────────────────────────────────
