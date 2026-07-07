@@ -244,14 +244,13 @@ def compute_raw_energy(audio_path: Path) -> float:
     ))
 
     # Normalise each feature to [0, 1] using empirical bounds
-    rms_norm = float(np.clip((rms - 0.01) / (0.45 - 0.01), 0.0, 1.0))
-    onset_norm = float(np.clip((onset_mean - 0.05) / (2.0 - 0.05), 0.0, 1.0))
-    centroid_norm = float(np.clip((centroid - 500) / (4000 - 500), 0.0, 1.0))
+    onset_norm   = float(np.clip((onset_mean  - 0.05) / (2.0  - 0.05), 0.0, 1.0))
+    centroid_norm = float(np.clip((centroid   - 500)  / (4000 - 500),  0.0, 1.0))
 
-    # Weights: onset density (50%) > RMS loudness (30%) > brightness (20%)
-    # Onset weighted highest so rhythmically intense tracks score high
-    # regardless of mastering level.
-    return float(0.30 * rms_norm + 0.50 * onset_norm + 0.20 * centroid_norm)
+    # RMS loudness is deliberately excluded: DJs adjust gain at the deck,
+    # so mastering level is not a reliable proxy for track energy.
+    # Weights: onset density (80%) + tonal brightness (20%).
+    return float(0.80 * onset_norm + 0.20 * centroid_norm)
 
 
 def normalise_scores(raw_values: list[float]) -> list[int]:
