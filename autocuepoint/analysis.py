@@ -198,30 +198,20 @@ def get_bar_duration(bpm: float, metro: str = "4/4") -> float:
     return (60.0 / bpm) * beats_per_bar
 
 
-def compute_energy_score(audio_path: Path) -> int:
+def compute_raw_energy(audio_path: Path) -> float:
     """
-    Compute a perceived energy score from 1 to 5 for a track.
+    Compute a raw (unnormalised) energy value for a track.
 
-    Combines three audio features that correlate with DJ-perceived energy:
-
-    - **RMS loudness** (45 %): how loud the active parts of the track are.
-      Uses the 75th-percentile RMS frame to represent the track's loud
-      sections without being skewed by silent intros or outros.
-    - **Onset strength** (35 %): density and sharpness of rhythmic events.
-      High values indicate a busy, punchy track; low values indicate ambient
-      or sparse material.
-    - **Spectral centroid** (20 %): tonal brightness. Brighter tracks
-      (more high-frequency content) tend to feel more intense.
-
-    Each feature is normalised to [0, 1] using empirical bounds calibrated
-    for electronic and dance music, then combined into a weighted score that
-    is mapped to the 1–5 integer range.
+    Combines RMS loudness (45 %), onset density (35 %), and spectral
+    centroid/brightness (20 %) into a single float in [0.0, 1.0].
+    Pass a list of these values to :func:`normalise_scores` to convert
+    them to 1–5 star ratings relative to your library.
 
     Args:
         audio_path: path to a supported audio file
 
     Returns:
-        Energy score in the range [1, 5] (inclusive).
+        Raw energy float in [0.0, 1.0].
     """
     _validate_audio_path(audio_path)
     y, sr = librosa.load(str(audio_path), sr=_SR, mono=True)
@@ -241,15 +231,45 @@ def compute_energy_score(audio_path: Path) -> int:
     ))
 
     # Normalise each feature to [0, 1] using empirical bounds
-    # RMS: 0.01 (near silence) → 0.45 (heavily limited dance music)
     rms_norm = float(np.clip((rms - 0.01) / (0.45 - 0.01), 0.0, 1.0))
-    # Onset strength: 0.05 (ambient) → 2.0 (dense techno / drum & bass)
     onset_norm = float(np.clip((onset_mean - 0.05) / (2.0 - 0.05), 0.0, 1.0))
-    # Spectral centroid: 500 Hz (sub-heavy) → 4 000 Hz (bright/harsh)
     centroid_norm = float(np.clip((centroid - 500) / (4000 - 500), 0.0, 1.0))
 
-    raw = 0.45 * rms_norm + 0.35 * onset_norm + 0.20 * centroid_norm
-    return int(np.clip(round(1 + raw * 4), 1, 5))
+    return float(0.45 * rms_norm + 0.35 * onset_norm + 0.20 * centroid_norm)
+
+
+def normalise_scores(raw_values: list[float]) -> list[int]:
+    """
+    Convert a list of raw energy floats into 1–5 star ratings using
+    percentile quintiles across the supplied batch.
+
+    The bottom 20 % of tracks receive 1 star, the next 20 % receive 2, and
+    so on, so every score tier is represented regardless of the absolute
+    loudness of the library.
+
+    Args:
+        raw_values: list of raw energy floats (from :func:`compute_raw_energy`)
+
+    Returns:
+        List of integers in [1, 5], one per input value.
+    """
+    if not raw_values:
+        return []
+    arr = np.array(raw_values)
+    thresholds = [float(np.percentile(arr, p)) for p in (20, 40, 60, 80)]
+    scores = []
+    for v in raw_values:
+        if v <= thresholds[0]:
+            scores.append(1)
+        elif v <= thresholds[1]:
+            scores.append(2)
+        elif v <= thresholds[2]:
+            scores.append(3)
+        elif v <= thresholds[3]:
+            scores.append(4)
+        else:
+            scores.append(5)
+    return scores
 
 
 # ── Internal helpers ─────────────────────────────────────────────────────────

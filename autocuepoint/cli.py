@@ -19,7 +19,7 @@ from pathlib import Path
 import click
 import numpy as np
 
-from .analysis import bars_from_audio, bars_from_tempo, compute_energy_score, detect_phrase_boundaries, get_bar_duration
+from .analysis import bars_from_audio, bars_from_tempo, compute_raw_energy, detect_phrase_boundaries, get_bar_duration, normalise_scores
 from .cues import build_hot_cues
 from .db_io import (
     backup_database,
@@ -160,6 +160,8 @@ def main(
     skipped_short = 0
     processed = 0
     errored = 0
+    # Accumulate (track_obj, raw_energy) pairs for batch normalisation
+    energy_pending: list[tuple[object, float]] = []
 
     for track in tracks:
         total += 1
@@ -266,11 +268,10 @@ def main(
                     mins, secs = divmod(cue.start, 60)
                     click.echo(f"              cue {cue.num + 1}: {int(mins):02d}:{secs:05.2f}  {cue.name or ''}")
 
-            # Optional energy score
+            # Optional energy score — collect raw value for batch normalisation
             if energy_score:
-                score = compute_energy_score(audio_path)
-                write_energy_score(db, str(track.ID), score)
-                click.echo(f"           -> energy {score}/5  {'★' * score}{'☆' * (5 - score)}")
+                raw = compute_raw_energy(audio_path)
+                energy_pending.append((track, raw))
 
             processed += 1
 
@@ -278,6 +279,18 @@ def main(
             click.echo(f"  [error]   {label}: {exc}", err=True)
             db.session.rollback()
             errored += 1
+
+    # Normalise and write energy scores across the whole batch
+    if energy_pending:
+        raw_values = [r for _, r in energy_pending]
+        scores = normalise_scores(raw_values)
+        click.echo(f"\nWriting normalised energy scores for {len(scores)} tracks ...")
+        from collections import Counter
+        dist = Counter(scores)
+        for s in sorted(dist):
+            click.echo(f"  {'★' * s}{'☆' * (5 - s)}  {dist[s]:4d}")
+        for (track_obj, _), score in zip(energy_pending, scores):
+            write_energy_score(db, track_obj, score)
 
     # Commit
     if processed > 0:
