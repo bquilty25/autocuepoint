@@ -198,44 +198,65 @@ def get_bar_duration(bpm: float, metro: str = "4/4") -> float:
     return (60.0 / bpm) * beats_per_bar
 
 
-def compute_raw_energy(audio_path: Path) -> float:
+def compute_raw_energy(audio_path: Path, bpm: float | None = None) -> float:
     """
     Compute a raw (unnormalised) energy value for a track.
 
-    Combines RMS loudness (45 %), onset density (35 %), and spectral
-    centroid/brightness (20 %) into a single float in [0.0, 1.0].
+    Combines four features that together approximate DJ-perceived energy:
+
+    - **BPM** (35 %): tempo normalised over 85–175 BPM. Fastest single
+      contributor — a 140 BPM techno track starts with a clear advantage.
+      If BPM is unavailable, this component defaults to 0.5.
+    - **RMS loudness** (30 %): 75th-percentile RMS of non-silent frames,
+      representing how loud the active parts of the track are.
+    - **Onset strength** (25 %): density and sharpness of rhythmic events.
+    - **Spectral centroid** (10 %): tonal brightness.
+
     Pass a list of these values to :func:`normalise_scores` to convert
     them to 1–5 star ratings relative to your library.
 
     Args:
         audio_path: path to a supported audio file
+        bpm: track BPM (from rekordbox beat grid); if None uses a neutral 0.5
 
     Returns:
         Raw energy float in [0.0, 1.0].
     """
     _validate_audio_path(audio_path)
+
+    # BPM component (no audio load needed)
+    if bpm is not None and bpm > 0:
+        bpm_norm = float(np.clip((bpm - 85.0) / (175.0 - 85.0), 0.0, 1.0))
+    else:
+        bpm_norm = 0.5
+
     y, sr = librosa.load(str(audio_path), sr=_SR, mono=True)
 
-    # 1. RMS loudness: 75th percentile of non-silent frames
+    # RMS loudness: 75th percentile of non-silent frames
     rms_frames = librosa.feature.rms(y=y, hop_length=_HOP_LENGTH)[0]
     active = rms_frames[rms_frames > 1e-4]
     rms = float(np.percentile(active, 75)) if len(active) > 0 else 0.0
 
-    # 2. Mean onset strength (musical event density)
+    # Mean onset strength (musical event density)
     onset_env = librosa.onset.onset_strength(y=y, sr=sr, hop_length=_HOP_LENGTH)
     onset_mean = float(np.mean(onset_env))
 
-    # 3. Mean spectral centroid (brightness)
+    # Mean spectral centroid (brightness)
     centroid = float(np.mean(
         librosa.feature.spectral_centroid(y=y, sr=sr, hop_length=_HOP_LENGTH)
     ))
 
-    # Normalise each feature to [0, 1] using empirical bounds
+    # Normalise audio features to [0, 1]
     rms_norm = float(np.clip((rms - 0.01) / (0.45 - 0.01), 0.0, 1.0))
     onset_norm = float(np.clip((onset_mean - 0.05) / (2.0 - 0.05), 0.0, 1.0))
     centroid_norm = float(np.clip((centroid - 500) / (4000 - 500), 0.0, 1.0))
 
-    return float(0.45 * rms_norm + 0.35 * onset_norm + 0.20 * centroid_norm)
+    return float(
+        0.35 * bpm_norm
+        + 0.30 * rms_norm
+        + 0.25 * onset_norm
+        + 0.10 * centroid_norm
+    )
 
 
 def normalise_scores(raw_values: list[float]) -> list[int]:
