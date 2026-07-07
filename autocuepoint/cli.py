@@ -19,7 +19,7 @@ from pathlib import Path
 import click
 import numpy as np
 
-from .analysis import bars_from_audio, bars_from_tempo, detect_phrase_boundaries, get_bar_duration
+from .analysis import bars_from_audio, bars_from_tempo, compute_energy_score, detect_phrase_boundaries, get_bar_duration
 from .cues import build_hot_cues
 from .db_io import (
     backup_database,
@@ -31,6 +31,7 @@ from .db_io import (
     has_hot_cues,
     open_db,
     write_cues_to_db,
+    write_energy_score,
 )
 from .xml_io import Tempo as XmlTempo
 
@@ -90,6 +91,14 @@ from .xml_io import Tempo as XmlTempo
          "Cues closer than this are dropped.",
 )
 @click.option(
+    "--energy-score",
+    is_flag=True,
+    default=False,
+    help="Compute a perceived energy score (1–5) for each track and write it to "
+         "the rekordbox star rating field. Based on loudness, onset density, and "
+         "spectral brightness. WARNING: overwrites any existing star ratings.",
+)
+@click.option(
     "--no-backup",
     is_flag=True,
     default=False,
@@ -109,6 +118,7 @@ def main(
     feature: str,
     min_duration: int,
     min_spacing: int,
+    energy_score: bool,
     no_backup: bool,
     verbose: bool,
 ) -> None:
@@ -255,6 +265,13 @@ def main(
                 for cue in cues:
                     mins, secs = divmod(cue.start, 60)
                     click.echo(f"              cue {cue.num + 1}: {int(mins):02d}:{secs:05.2f}  {cue.name or ''}")
+
+            # Optional energy score
+            if energy_score:
+                score = compute_energy_score(audio_path)
+                write_energy_score(db, str(track.ID), score)
+                click.echo(f"           -> energy {score}/5  {'★' * score}{'☆' * (5 - score)}")
+
             processed += 1
 
         except Exception as exc:  # noqa: BLE001

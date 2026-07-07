@@ -178,6 +178,18 @@ def write_cues_to_db(db, content: object, cues: list[CuePoint]) -> int:
     return len(cues)
 
 
+def write_energy_score(db, content_id: str, score: int) -> None:
+    """Write an energy score (1–5) to djmdContent.Rating for the given track."""
+    from pyrekordbox.db6 import tables
+    from datetime import datetime, timezone
+
+    track = db.session.query(tables.DjmdContent).filter_by(ID=content_id).first()
+    if track is None:
+        raise ValueError(f"Track ID {content_id!r} not found in database")
+    track.Rating = max(1, min(5, int(score)))
+    track.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+
+
 def get_track_bpm_and_path(track) -> tuple[float | None, Path | None]:
     """Extract BPM and audio file path from a djmdContent row."""
     # BPM is stored as centiBPM (x100) in the database

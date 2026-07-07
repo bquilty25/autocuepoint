@@ -198,6 +198,60 @@ def get_bar_duration(bpm: float, metro: str = "4/4") -> float:
     return (60.0 / bpm) * beats_per_bar
 
 
+def compute_energy_score(audio_path: Path) -> int:
+    """
+    Compute a perceived energy score from 1 to 5 for a track.
+
+    Combines three audio features that correlate with DJ-perceived energy:
+
+    - **RMS loudness** (45 %): how loud the active parts of the track are.
+      Uses the 75th-percentile RMS frame to represent the track's loud
+      sections without being skewed by silent intros or outros.
+    - **Onset strength** (35 %): density and sharpness of rhythmic events.
+      High values indicate a busy, punchy track; low values indicate ambient
+      or sparse material.
+    - **Spectral centroid** (20 %): tonal brightness. Brighter tracks
+      (more high-frequency content) tend to feel more intense.
+
+    Each feature is normalised to [0, 1] using empirical bounds calibrated
+    for electronic and dance music, then combined into a weighted score that
+    is mapped to the 1–5 integer range.
+
+    Args:
+        audio_path: path to a supported audio file
+
+    Returns:
+        Energy score in the range [1, 5] (inclusive).
+    """
+    _validate_audio_path(audio_path)
+    y, sr = librosa.load(str(audio_path), sr=_SR, mono=True)
+
+    # 1. RMS loudness: 75th percentile of non-silent frames
+    rms_frames = librosa.feature.rms(y=y, hop_length=_HOP_LENGTH)[0]
+    active = rms_frames[rms_frames > 1e-4]
+    rms = float(np.percentile(active, 75)) if len(active) > 0 else 0.0
+
+    # 2. Mean onset strength (musical event density)
+    onset_env = librosa.onset.onset_strength(y=y, sr=sr, hop_length=_HOP_LENGTH)
+    onset_mean = float(np.mean(onset_env))
+
+    # 3. Mean spectral centroid (brightness)
+    centroid = float(np.mean(
+        librosa.feature.spectral_centroid(y=y, sr=sr, hop_length=_HOP_LENGTH)
+    ))
+
+    # Normalise each feature to [0, 1] using empirical bounds
+    # RMS: 0.01 (near silence) → 0.45 (heavily limited dance music)
+    rms_norm = float(np.clip((rms - 0.01) / (0.45 - 0.01), 0.0, 1.0))
+    # Onset strength: 0.05 (ambient) → 2.0 (dense techno / drum & bass)
+    onset_norm = float(np.clip((onset_mean - 0.05) / (2.0 - 0.05), 0.0, 1.0))
+    # Spectral centroid: 500 Hz (sub-heavy) → 4 000 Hz (bright/harsh)
+    centroid_norm = float(np.clip((centroid - 500) / (4000 - 500), 0.0, 1.0))
+
+    raw = 0.45 * rms_norm + 0.35 * onset_norm + 0.20 * centroid_norm
+    return int(np.clip(round(1 + raw * 4), 1, 5))
+
+
 # ── Internal helpers ─────────────────────────────────────────────────────────
 
 def _validate_audio_path(audio_path: Path) -> None:
